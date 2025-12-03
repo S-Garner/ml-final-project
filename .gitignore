@@ -1,0 +1,11 @@
+# Python project files
+
+*.pyc
+__pycache__
+venv/
+dist/
+build/
+coverage/
+
+# Ignore this file itself
+# .gitignore
