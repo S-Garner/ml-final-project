@@ -134,41 +134,37 @@ def predict_image(model, path, size):
     label = "DOG" if pred == 1 else "CAT"
     print(f"{path}: kNN -> {label}")
 
-def plot_cnn_history(history):
-    # --- Accuracy ---
+def plot_cnn_history(history, model_id="cnn_model"):
+    # ----- Accuracy -----
     plt.figure()
     plt.plot(history.history["accuracy"])
     plt.plot(history.history["val_accuracy"])
-    plt.title("CNN Accuracy")
+    plt.title(f"{model_id} - Accuracy")
     plt.xlabel("Epoch")
     plt.ylabel("Accuracy")
     plt.legend(["Train", "Validation"])
-    plt.savefig("cnn_accuracy.png")
+    plt.savefig(f"{model_id}_accuracy.png")
     plt.close()
 
-    # --- Loss ---
+    # ----- Loss -----
     plt.figure()
     plt.plot(history.history["loss"])
     plt.plot(history.history["val_loss"])
-    plt.title("CNN Loss")
+    plt.title(f"{model_id} - Loss")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.legend(["Train", "Validation"])
-    plt.savefig("cnn_loss.png")
+    plt.savefig(f"{model_id}_loss.png")
     plt.close()
 
 
-# ========================================
-# PLOT 2: kNN ACCURACY FOR MULTIPLE k VALUES
-# ========================================
-
-def plot_knn_results(k_values, accuracies):
+def plot_knn_results(k_values, accuracies, model_id="knn"):
     plt.figure()
     plt.bar([str(k) for k in k_values], accuracies)
-    plt.title("kNN Accuracy by k Value")
+    plt.title(f"{model_id} - Accuracy by k Value")
     plt.xlabel("k")
     plt.ylabel("Accuracy")
-    plt.savefig("knn_accuracy.png")
+    plt.savefig(f"{model_id}_accuracy.png")
     plt.close()
 
 # ========================================
@@ -225,9 +221,9 @@ def main():
         print(f"Accuracy for k={k}: {acc:.4f}")
 
     # Create plot
-    plot_knn_results(k_values, accuracies)
+    plot_knn_results(k_values, accuracies, model_id="knn_model")
 
-    plot_cnn_history(cnn_history)
+    plot_cnn_history(cnn_history, model_id="cnn_model")
 
     # ---- Output Metrics ----
     print_metrics(cnn_history, label="CNN Model")
