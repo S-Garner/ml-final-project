@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 
-from datasets                   import load_dataset
-from sklearn.model_selection    import train_test_split
-from PIL                        import Image
-from tensorflow.keras           import layers, models
+from datasets import load_dataset
+from sklearn.model_selection import train_test_split
+from sklearn.neighbors import KNeighborsClassifier
+from PIL import Image
+from tensorflow.keras import layers, models
 import numpy as np
 import tensorflow as tf
-
+import matplotlib.pyplot as plt
 
 # ========================================
 # LOAD DATASET
@@ -14,7 +15,6 @@ import tensorflow as tf
 
 def load_in_dataset():
     return load_dataset('microsoft/cats_vs_dogs')
-
 
 # ========================================
 # IMAGE PROCESSING
@@ -33,7 +33,6 @@ def build_xy(dataset, size):
         arr = process_image(item["image"], size)
         images.append(arr)
         labels.append(item["labels"])
-
     x = np.stack(images)
     y = np.array(labels)
     return x, y
@@ -64,15 +63,14 @@ def build_cnn_model(input_shape):
         layers.MaxPooling2D((2,2)),
 
         layers.Flatten(),
-        layers.Dense(128, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001)),
-        
+        layers.Dense(128, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0005)),
         layers.Dropout(0.5),
 
         layers.Dense(1, activation='sigmoid')
     ])
 
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=0.0005),
+        optimizer=tf.keras.optimizers.Adam(learning_rate=0.0003),
         loss='binary_crossentropy',
         metrics=['accuracy']
     )
@@ -81,67 +79,97 @@ def build_cnn_model(input_shape):
 
 
 # ========================================
-# TRANSFER LEARNING MODEL (Returns model AND base_model)
+# kNN MODEL
 # ========================================
 
-def build_transfer_model(input_shape):
-    base_model = tf.keras.applications.MobileNetV2(
-        input_shape=input_shape,
-        include_top=False,
-        weights='imagenet'
-    )
-    base_model.trainable = False
+def train_knn(x_train, y_train, k):
+    n = x_train.shape[0]
+    flat = x_train.reshape(n, -1)
+    knn = KNeighborsClassifier(n_neighbors=k)
+    knn.fit(flat, y_train)
+    return knn
 
-    inputs = tf.keras.Input(shape=input_shape)
-    x = tf.keras.applications.mobilenet_v2.preprocess_input(inputs)
-    x = base_model(x, training=False)
-    x = layers.GlobalAveragePooling2D()(x)
-    outputs = layers.Dense(1, activation='sigmoid')(x)
 
-    model = tf.keras.Model(inputs, outputs)
-
-    model.compile(
-        optimizer='adam',
-        loss='binary_crossentropy',
-        metrics=['accuracy']
-    )
-
-    return model, base_model
+def knn_accuracy(knn, x_test, y_test):
+    n = x_test.shape[0]
+    flat = x_test.reshape(n, -1)
+    preds = knn.predict(flat)
+    return np.mean(preds == y_test)
 
 
 # ========================================
-# PREDICTION FUNCTION
-# ========================================
-
-def predict_image(model, path, size):
-    image = Image.open(path).convert("RGB")
-    image = image.resize((size, size))
-    arr = np.asarray(image, dtype=np.float32) / 255.0
-    arr = np.expand_dims(arr, axis=0)
-
-    pred = model.predict(arr)[0][0]
-    label = "DOG" if pred > 0.5 else "CAT"
-    print(f"{path}: {label} ({pred:.4f})")
-
-
-# ========================================
-# METRICS PRINTING
+# METRICS
 # ========================================
 
 def print_metrics(history, label):
     print(f"\n=== FINAL METRICS FOR {label} ===")
+    final_train_acc = history.history["accuracy"][-1]
+    final_train_loss = history.history["loss"][-1]
+    final_val_acc = history.history["val_accuracy"][-1]
+    final_val_loss = history.history["val_loss"][-1]
 
-    train_acc = history.history["accuracy"][-1]
-    train_loss = history.history["loss"][-1]
-    val_acc = history.history["val_accuracy"][-1]
-    val_loss = history.history["val_loss"][-1]
+    print(f"Train Accuracy:      {final_train_acc:.4f}")
+    print(f"Train Loss:          {final_train_loss:.4f}")
+    print(f"Validation Accuracy: {final_val_acc:.4f}")
+    print(f"Validation Loss:     {final_val_loss:.4f}\n")
 
-    print(f"Train Accuracy:      {train_acc:.4f}")
-    print(f"Train Loss:          {train_loss:.4f}")
-    print(f"Validation Accuracy: {val_acc:.4f}")
-    print(f"Validation Loss:     {val_loss:.4f}")
-    print("")
+def predict_image(model, path, size):
+    image = Image.open(path).convert("RGB")
+    image = image.resize((size, size))
 
+    arr = np.asarray(image, dtype=np.float32) / 255.0
+
+    # CNN expects shape (1, H, W, C)
+    if isinstance(model, tf.keras.Model):
+        arr_expanded = np.expand_dims(arr, axis=0)
+        pred = model.predict(arr_expanded)[0][0]
+        label = "DOG" if pred > 0.5 else "CAT"
+        print(f"{path}: CNN -> {label} ({pred:.4f})")
+        return
+
+    # kNN expects shape (1, H*W*C)
+    flat = arr.reshape(1, -1)
+    pred = model.predict(flat)[0]
+
+    label = "DOG" if pred == 1 else "CAT"
+    print(f"{path}: kNN -> {label}")
+
+def plot_cnn_history(history):
+    # --- Accuracy ---
+    plt.figure()
+    plt.plot(history.history["accuracy"])
+    plt.plot(history.history["val_accuracy"])
+    plt.title("CNN Accuracy")
+    plt.xlabel("Epoch")
+    plt.ylabel("Accuracy")
+    plt.legend(["Train", "Validation"])
+    plt.savefig("cnn_accuracy.png")
+    plt.close()
+
+    # --- Loss ---
+    plt.figure()
+    plt.plot(history.history["loss"])
+    plt.plot(history.history["val_loss"])
+    plt.title("CNN Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.legend(["Train", "Validation"])
+    plt.savefig("cnn_loss.png")
+    plt.close()
+
+
+# ========================================
+# PLOT 2: kNN ACCURACY FOR MULTIPLE k VALUES
+# ========================================
+
+def plot_knn_results(k_values, accuracies):
+    plt.figure()
+    plt.bar([str(k) for k in k_values], accuracies)
+    plt.title("kNN Accuracy by k Value")
+    plt.xlabel("k")
+    plt.ylabel("Accuracy")
+    plt.savefig("knn_accuracy.png")
+    plt.close()
 
 # ========================================
 # MAIN
@@ -151,7 +179,7 @@ def main():
     print("Loading dataset...\n")
     dataset = load_in_dataset()
 
-    IMAGE_SIZE = 128
+    IMAGE_SIZE = 64
 
     print("Processing images...\n")
     x, y = build_xy(dataset, IMAGE_SIZE)
@@ -159,68 +187,53 @@ def main():
     print("Splitting data...\n")
     x_train, x_test, y_train, y_test = split_data(x, y)
 
+    print("Shapes:")
+    print(f"x_train: {x_train.shape}")
+    print(f"x_test: {x_test.shape}")
+    print(f"y_train: {y_train.shape}")
+    print(f"y_test: {y_test.shape}")
+
     input_shape = (IMAGE_SIZE, IMAGE_SIZE, 3)
 
-    print("Building models...\n")
+    # ---- CNN ----
     cnn = build_cnn_model(input_shape)
-    transfer, base_model = build_transfer_model(input_shape)
-
-    print("Training CNN (baseline)...")
     cnn_history = cnn.fit(
         x_train, y_train,
         validation_data=(x_test, y_test),
         epochs=5,
-        batch_size=32
+        batch_size=32,
+        shuffle=True
     )
 
-    print("Training transfer model (frozen base)...")
-    transfer_history = transfer.fit(
-        x_train, y_train,
-        validation_data=(x_test, y_test),
-        epochs=5,
-        batch_size=32
-    )
+    # ---- kNN ----
+    print("\nTraining kNN (k=5)...")
+    knn = train_knn(x_train, y_train, k=5)
+    knn_acc = knn_accuracy(knn, x_test, y_test)
+    print(f"kNN Accuracy: {knn_acc:.4f}")
 
-    # ========================================
-    # FINE-TUNING
-    # ========================================
+    # ---- kNN ----
+    print("\nTraining kNN models...")
 
-    print("\nStarting fine-tuning...")
+    k_values = [1, 3, 5, 7, 11]
+    accuracies = []
 
-    base_model.trainable = True
+    for k in k_values:
+        print(f"Training kNN (k={k})...")
+        knn = train_knn(x_train, y_train, k)
+        acc = knn_accuracy(knn, x_test, y_test)
+        accuracies.append(acc)
+        print(f"Accuracy for k={k}: {acc:.4f}")
 
-    # Freeze all but the last 20 layers
-    for layer in base_model.layers[:-20]:
-        layer.trainable = False
+    # Create plot
+    plot_knn_results(k_values, accuracies)
 
-    transfer.compile(
-        optimizer=tf.keras.optimizers.Adam(1e-5),
-        loss='binary_crossentropy',
-        metrics=['accuracy']
-    )
+    plot_cnn_history(cnn_history)
 
-    fine_tune_history = transfer.fit(
-        x_train, y_train,
-        validation_data=(x_test, y_test),
-        epochs=3,
-        batch_size=32
-    )
+    # ---- Output Metrics ----
+    print_metrics(cnn_history, label="CNN Model")
 
-    # ========================================
-    # OUTPUT METRICS
-    # ========================================
-
-    print_metrics(cnn_history,             "CNN Model")
-    print_metrics(transfer_history,        "Transfer Model (Frozen)")
-    print_metrics(fine_tune_history,       "Transfer Model (Fine-Tuned)")
-
-    # ========================================
-    # TEST ON A CUSTOM IMAGE
-    # ========================================
-
-    print("\nTesting on custom image:\n")
-    predict_image(transfer, "data/images/dog_01.jpg", IMAGE_SIZE)
-
+    predict_image(cnn, "data/images/dog_01.jpg", IMAGE_SIZE)
+    predict_image(knn, "data/images/dog_01.jpg", IMAGE_SIZE)
 
 if __name__ == "__main__":
     main()
